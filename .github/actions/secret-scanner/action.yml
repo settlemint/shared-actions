@@ -1,0 +1,76 @@
+name: "Secret Scanner"
+description: "Scan for secrets in the codebase"
+inputs:
+  trivy_config:
+    description: "Path to Trivy configuration file"
+    required: false
+    default: ""
+  severity:
+    description: "Severity levels to check (comma-separated)"
+    required: false
+    default: "HIGH,CRITICAL"
+  exit_code:
+    description: "Exit code when secrets are found"
+    required: false
+    default: "1"
+  log_level:
+    description: "Log verbosity (error, warn, info, debug)"
+    required: false
+    default: "error"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Cache Trivy DB
+      uses: namespacelabs/nscloud-cache-action@v1
+      with:
+        path: |
+          ~/.cache/trivy
+          /tmp/trivy-cache
+
+    - name: Debug - List files to scan (quiet)
+      if: ${{ inputs.log_level != 'error' }}
+      shell: bash
+      run: |
+        echo "Current directory: $(pwd)"
+        echo "Files in workspace: (trimmed)"
+        find . -type f -maxdepth 2 -not -path "*/node_modules/*" -not -path "*/.git/*" 2>/dev/null | head -5 || true
+
+    - name: Setup Trivy
+      uses: aquasecurity/setup-trivy@v0.2.4
+
+    - name: Secret Scanning (Trivy)
+      shell: bash
+      run: |
+        [ "${{ inputs.log_level }}" != "error" ] && echo "Starting Trivy secret scan..." || true
+
+        # Check if config file exists
+        if [ -f "trivy-secret.yaml" ]; then
+          echo "Found trivy-secret.yaml config file"
+          echo "Config file contents:"
+          cat trivy-secret.yaml
+        fi
+
+        config_arg=""
+        if [ -n "${{ inputs.trivy_config }}" ]; then
+          config_arg="--config ${{ inputs.trivy_config }}"
+        elif [ -f "trivy-secret.yaml" ]; then
+          config_arg="--config trivy-secret.yaml"
+        fi
+
+        [ "${{ inputs.log_level }}" != "error" ] && echo "Running trivy with config: ${config_arg}" || true
+
+        trivy fs . \
+          --scanners secret \
+          --severity ${{ inputs.severity }} \
+          --format table \
+          --exit-code ${{ inputs.exit_code }} \
+          ${config_arg} \
+          --skip-dirs "node_modules,dist,build,.git,.github,coverage,.turbo,.next,out,.cache,tmp,temp,vendor,target,.venv,__pycache__,.pytest_cache,.mypy_cache,.tox,.eggs,*.egg-info,.generated,typechain,typechain-types,generated,.eslintcache,.npm,.tanstack,.nitro,.output,paraglide,dependencies,jspm_packages,ignition/deployments,.idea,logs" \
+          || exit_code=$?
+
+        if [ "${exit_code:-0}" -ne 0 ]; then
+          echo "Trivy found secrets or encountered an error (exit code: ${exit_code})"
+          exit ${exit_code}
+        fi
+        [ "${{ inputs.log_level }}" != "error" ] && echo "No secrets found." || true
