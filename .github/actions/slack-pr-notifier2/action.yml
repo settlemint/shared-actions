@@ -1,0 +1,305 @@
+name: "Slack PR Notifier v2"
+description: "Send or update Slack notifications for PR events"
+inputs:
+  pr_number:
+    description: "Pull request number"
+    required: true
+  pr_title:
+    description: "Pull request title"
+    required: true
+  pr_url:
+    description: "Pull request URL"
+    required: true
+  pr_author:
+    description: "Pull request author"
+    required: true
+  pr_author_type:
+    description: "Pull request author type (User or Bot)"
+    required: false
+    default: "User"
+  pr_author_avatar:
+    description: "Pull request author avatar URL"
+    required: false
+    default: ""
+  slack_bot_token:
+    description: "Slack bot token"
+    required: true
+  slack_channel_id:
+    description: "Slack channel ID"
+    required: true
+  update_message:
+    description: "Deprecated: retained for compatibility, no longer used"
+    required: false
+    default: "false"
+  is_abandoned:
+    description: "Whether the PR was abandoned (closed without merging)"
+    required: false
+    default: "false"
+  wait_time:
+    description: "Optional delay in milliseconds before reading PR metadata"
+    required: false
+    default: "0"
+  reaction_delay_ms:
+    description: "Deprecated: retained for compatibility, no longer used"
+    required: false
+    default: "0"
+  verification_delay_ms:
+    description: "Deprecated: retained for compatibility, no longer used"
+    required: false
+    default: "0"
+  icon_emoji:
+    description: "Optional Slack emoji icon override (:rocket:)"
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Optional wait for label propagation
+      if: ${{ inputs.wait_time != '0' && inputs.wait_time != '' }}
+      shell: bash
+      env:
+        WAIT_MS: ${{ inputs.wait_time }}
+      run: |
+        python3 - <<'PY'
+        import os, time
+        try:
+            ms = int(os.environ.get("WAIT_MS") or "0")
+        except ValueError:
+            ms = 0
+        if ms > 0:
+            time.sleep(ms / 1000)
+        PY
+
+    - name: Prepare Slack payload
+      id: prepare
+      uses: actions/github-script@v8
+      env:
+        PR_NUMBER: ${{ inputs.pr_number }}
+        PR_TITLE: ${{ inputs.pr_title }}
+        PR_URL: ${{ inputs.pr_url }}
+        PR_AUTHOR: ${{ inputs.pr_author }}
+        PR_AUTHOR_TYPE: ${{ inputs.pr_author_type }}
+        SLACK_CHANNEL_ID: ${{ inputs.slack_channel_id }}
+        IS_ABANDONED: ${{ inputs.is_abandoned }}
+      with:
+        script: |
+          const crypto = require("crypto");
+          const prNumber = Number(process.env.PR_NUMBER);
+          const repo = context.repo;
+
+          let pr = context.payload.pull_request;
+          if (!pr || pr.number !== prNumber) {
+            const { data } = await github.rest.pulls.get({
+              owner: repo.owner,
+              repo: repo.repo,
+              pull_number: prNumber,
+            });
+            pr = data;
+          }
+
+          const labelNames = (pr.labels || []).map((label) =>
+            typeof label === "string" ? label : label.name
+          );
+
+          const findLabel = (prefix) =>
+            labelNames.find((name) => name && name.startsWith(prefix)) || "";
+
+          const formatLabel = (value, fallback) => {
+            if (!value) return fallback;
+            return value.replace(/^[^:]+:/, "").replace(/[-_]/g, " ");
+          };
+
+          const statusLabel = findLabel("status:");
+          const qaLabel = findLabel("qa:");
+          const statusText = formatLabel(statusLabel, "pending review");
+          const qaText = formatLabel(qaLabel, "pending");
+          const isAbandoned = process.env.IS_ABANDONED === "true";
+
+          const text = `PR #${prNumber}: ${process.env.PR_TITLE} • Status: ${statusText} • QA: ${qaText}`;
+
+          const blocks = [
+            {
+              type: "header",
+              text: {
+                type: "plain_text",
+                text: `PR #${prNumber} ${process.env.PR_TITLE}`.slice(0, 150),
+                emoji: true,
+              },
+            },
+            {
+              type: "section",
+              fields: [
+                { type: "mrkdwn", text: `*Author*\n${process.env.PR_AUTHOR}` },
+                { type: "mrkdwn", text: `*Repository*\n${repo.owner}/${repo.repo}` },
+                { type: "mrkdwn", text: `*Status*\n${statusText}` },
+                { type: "mrkdwn", text: `*QA*\n${qaText}` },
+              ],
+            },
+            {
+              type: "actions",
+              elements: [
+                {
+                  type: "button",
+                  text: { type: "plain_text", text: "View PR", emoji: true },
+                  url: process.env.PR_URL,
+                  style: "primary",
+                },
+                {
+                  type: "button",
+                  text: { type: "plain_text", text: "Files", emoji: true },
+                  url: `${process.env.PR_URL}/files`,
+                },
+                {
+                  type: "button",
+                  text: { type: "plain_text", text: "Checks", emoji: true },
+                  url: `${process.env.PR_URL}/checks`,
+                },
+              ],
+            },
+          ];
+
+          const contextElements = [];
+          if (isAbandoned) {
+            contextElements.push({ type: "mrkdwn", text: ":file_folder: PR closed without merge" });
+          } else if (pr.merged) {
+            contextElements.push({ type: "mrkdwn", text: ":tada: PR merged" });
+          }
+
+          if (labelNames.length) {
+            contextElements.push({
+              type: "mrkdwn",
+              text: labelNames.map((name) => `#${name}`).join(" "),
+            });
+          }
+
+
+          if (contextElements.length) {
+            blocks.push({ type: "context", elements: contextElements });
+          }
+
+          const stateHash = crypto
+            .createHash("sha1")
+            .update(JSON.stringify({ text, blocks }))
+            .digest("hex");
+
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: repo.owner,
+            repo: repo.repo,
+            issue_number: prNumber,
+          });
+
+          const existing = comments.find((comment) =>
+            typeof comment.body === "string" && comment.body.includes("<!-- slack-ts:")
+          );
+
+          let slackTs = "";
+          let commentId = "";
+          let existingHash = "";
+          if (existing) {
+            commentId = String(existing.id);
+            const tsMatch = existing.body.match(/<!-- slack-ts:([0-9.]+) -->/);
+            if (tsMatch) slackTs = tsMatch[1];
+            const hashMatch = existing.body.match(/<!-- slack-hash:([0-9a-f]+) -->/);
+            if (hashMatch) existingHash = hashMatch[1];
+          }
+
+          const authorType = (process.env.PR_AUTHOR_TYPE || "user").toLowerCase();
+          let skipReason = "";
+          if (authorType === "bot") {
+            skipReason = "PR opened by bot";
+          } else if (pr.draft) {
+            skipReason = "PR is draft";
+          } else if (!slackTs && pr.merged) {
+            skipReason = "PR already merged";
+          }
+
+          const needsMessage = !skipReason && (stateHash !== existingHash || !slackTs);
+          const slackFunction = needsMessage ? (slackTs ? "update-message" : "send-message") : "";
+
+          if (skipReason) {
+            core.info(`Skipping Slack notification: ${skipReason}`);
+          } else if (!needsMessage) {
+            core.info("Slack message is already up to date; skipping send.");
+          }
+
+          core.setOutput("text", text);
+          core.setOutput("blocks", JSON.stringify(blocks));
+          core.setOutput("state_hash", stateHash);
+          core.setOutput("slack_ts", slackTs);
+          core.setOutput("comment_id", commentId);
+          core.setOutput("needs_message", needsMessage ? "true" : "false");
+          core.setOutput("slack_function", slackFunction);
+          core.setOutput("skip_reason", skipReason);
+
+    - name: Send Slack notification
+      if: ${{ steps.prepare.outputs.needs_message == 'true' }}
+      id: slack_message
+      uses: archive/github-actions-slack@v2.10.1
+      with:
+        slack-function: ${{ steps.prepare.outputs.slack_function }}
+        slack-bot-user-oauth-access-token: ${{ inputs.slack_bot_token }}
+        slack-channel: ${{ inputs.slack_channel_id }}
+        slack-text: ${{ steps.prepare.outputs.text }}
+        slack-optional-blocks: ${{ steps.prepare.outputs.blocks }}
+        slack-optional-icon_emoji: ${{ inputs.icon_emoji }}
+
+    - name: Persist Slack metadata
+      if: ${{ steps.prepare.outputs.needs_message == 'true' }}
+      uses: actions/github-script@v8
+      env:
+        PR_NUMBER: ${{ inputs.pr_number }}
+        COMMENT_ID: ${{ steps.prepare.outputs.comment_id }}
+        STATE_HASH: ${{ steps.prepare.outputs.state_hash }}
+        EXISTING_TS: ${{ steps.prepare.outputs.slack_ts }}
+        SLACK_RESULT: ${{ steps.slack_message.outputs.slack-result }}
+      with:
+        script: |
+          const repo = context.repo;
+          const prNumber = Number(process.env.PR_NUMBER);
+          let slackTs = process.env.EXISTING_TS;
+
+          if (process.env.SLACK_RESULT) {
+            try {
+              const parsed = JSON.parse(process.env.SLACK_RESULT);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                const match = parsed.find((entry) => entry?.response?.ts || entry?.response?.message?.ts);
+                if (match?.response?.ts) slackTs = match.response.ts;
+                if (!slackTs && match?.response?.message?.ts) slackTs = match.response.message.ts;
+              } else if (parsed?.response?.ts) {
+                slackTs = parsed.response.ts;
+              } else if (parsed?.response?.message?.ts) {
+                slackTs = parsed.response.message.ts;
+              }
+            } catch (error) {
+              core.warning(`Failed to parse slack-result: ${error.message}`);
+            }
+          }
+
+          if (!slackTs) {
+            core.warning("No Slack timestamp available; skipping comment update.");
+            return;
+          }
+
+          const body = [
+            `<!-- slack-ts:${slackTs} -->`,
+            `<!-- slack-hash:${process.env.STATE_HASH} -->`,
+            `To view in Slack, search for: ${slackTs}`,
+          ].join("\n");
+
+          const commentId = process.env.COMMENT_ID;
+          if (commentId) {
+            await github.rest.issues.updateComment({
+              owner: repo.owner,
+              repo: repo.repo,
+              comment_id: Number(commentId),
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: repo.owner,
+              repo: repo.repo,
+              issue_number: prNumber,
+              body,
+            });
+          }
