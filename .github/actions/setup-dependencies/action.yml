@@ -60,6 +60,10 @@ runs:
       run: |
         brew install norwoodj/tap/helm-docs
 
+    - name: Install Node Gyp
+      shell: bash
+      run: bun install -g node-gyp
+
     - name: Install Bun dependencies
       shell: bash
       run: |
