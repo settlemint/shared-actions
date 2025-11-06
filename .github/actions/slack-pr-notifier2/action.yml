@@ -232,16 +232,29 @@ runs:
           core.setOutput("slack_function", slackFunction);
           core.setOutput("skip_reason", skipReason);
 
-    - name: Send Slack notification
-      if: ${{ steps.prepare.outputs.needs_message == 'true' }}
-      id: slack_message
+    - name: Send Slack notification (new message)
+      if: ${{ steps.prepare.outputs.slack_function == 'send-message' }}
+      id: slack_send
       uses: archive/github-actions-slack@v2.10.1
       with:
-        slack-function: ${{ steps.prepare.outputs.slack_function }}
+        slack-function: send-message
         slack-bot-user-oauth-access-token: ${{ inputs.slack_bot_token }}
         slack-channel: ${{ inputs.slack_channel_id }}
         slack-text: ${{ steps.prepare.outputs.text }}
         slack-optional-blocks: ${{ steps.prepare.outputs.blocks }}
+        slack-optional-icon_emoji: ${{ inputs.icon_emoji }}
+
+    - name: Send Slack notification (update existing)
+      if: ${{ steps.prepare.outputs.slack_function == 'update-message' }}
+      id: slack_update
+      uses: archive/github-actions-slack@v2.10.1
+      with:
+        slack-function: update-message
+        slack-bot-user-oauth-access-token: ${{ inputs.slack_bot_token }}
+        slack-channel: ${{ inputs.slack_channel_id }}
+        slack-update-message-ts: ${{ steps.prepare.outputs.slack_ts }}
+        slack-update-message-text: ${{ steps.prepare.outputs.text }}
+        slack-update-message-blocks: ${{ steps.prepare.outputs.blocks }}
         slack-optional-icon_emoji: ${{ inputs.icon_emoji }}
 
     - name: Persist Slack metadata
@@ -252,7 +265,7 @@ runs:
         COMMENT_ID: ${{ steps.prepare.outputs.comment_id }}
         STATE_HASH: ${{ steps.prepare.outputs.state_hash }}
         EXISTING_TS: ${{ steps.prepare.outputs.slack_ts }}
-        SLACK_RESULT: ${{ steps.slack_message.outputs.slack-result }}
+        SLACK_RESULT: ${{ steps.slack_send.outputs.slack-result || steps.slack_update.outputs.slack-result }}
       with:
         script: |
           const repo = context.repo;
