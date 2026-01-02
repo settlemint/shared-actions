@@ -50,6 +50,7 @@ runs:
       if: inputs.runner == 'namespace'
       uses: namespacelabs/nscloud-cache-action@v1
       with:
+        cache: brew
         path: |
           ./.turbo
           ./**/.turbo
