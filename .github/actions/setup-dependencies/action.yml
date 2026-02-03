@@ -54,17 +54,15 @@ runs:
       if: inputs.runner == 'namespace'
       uses: namespacelabs/nscloud-cache-action@v1
       with:
-        cache: brew
+        cache: |
+          playwright
+          apt
+          brew
+          bun
         path: |
-          ./.turbo
-          ./**/.turbo
-          ~/.bun/install/cache
-          ~/.cache/turbo
-          ~/.cache/bun
           ~/.cache/foundry
           ~/.foundry
           ~/.cache/helm
-          ./kit/contracts/.generated
 
     - name: Setup caches (github)
       if: inputs.runner == 'github'
