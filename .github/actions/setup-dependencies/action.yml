@@ -68,6 +68,7 @@ runs:
           ~/.cache/foundry
           ~/.foundry
           ~/.cache/helm
+          ~/.cache/ms-playwright
 
     - name: Setup caches (github)
       if: inputs.runner == 'github'
