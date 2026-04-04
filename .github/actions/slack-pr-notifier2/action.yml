@@ -235,7 +235,7 @@ runs:
     - name: Send Slack notification (new message)
       if: ${{ steps.prepare.outputs.slack_function == 'send-message' }}
       id: slack_send
-      uses: archive/github-actions-slack@v2.11.0
+      uses: archive/github-actions-slack@v3.0.0
       with:
         slack-function: send-message
         slack-bot-user-oauth-access-token: ${{ inputs.slack_bot_token }}
@@ -247,7 +247,7 @@ runs:
     - name: Send Slack notification (update existing)
       if: ${{ steps.prepare.outputs.slack_function == 'update-message' }}
       id: slack_update
-      uses: archive/github-actions-slack@v2.11.0
+      uses: archive/github-actions-slack@v3.0.0
       with:
         slack-function: update-message
         slack-bot-user-oauth-access-token: ${{ inputs.slack_bot_token }}
