@@ -122,7 +122,7 @@ runs:
 
     - name: Install Helm
       if: inputs.disable_helm == 'false'
-      uses: azure/setup-helm@v4
+      uses: azure/setup-helm@v5
 
     - name: Set up Python
       if: inputs.disable_python == 'false'
