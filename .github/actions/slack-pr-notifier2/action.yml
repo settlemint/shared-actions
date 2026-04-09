@@ -73,7 +73,7 @@ runs:
 
     - name: Prepare Slack payload
       id: prepare
-      uses: actions/github-script@v8
+      uses: actions/github-script@v9
       env:
         PR_NUMBER: ${{ inputs.pr_number }}
         PR_TITLE: ${{ inputs.pr_title }}
@@ -259,7 +259,7 @@ runs:
 
     - name: Persist Slack metadata
       if: ${{ steps.prepare.outputs.needs_message == 'true' }}
-      uses: actions/github-script@v8
+      uses: actions/github-script@v9
       env:
         PR_NUMBER: ${{ inputs.pr_number }}
         COMMENT_ID: ${{ steps.prepare.outputs.comment_id }}
