@@ -44,20 +44,20 @@ runs:
   using: "composite"
   steps:
     - name: Inject slug/short variables
-      uses: rlespinasse/github-slug-action@v5
+      uses: rlespinasse/github-slug-action@v5.6.0
 
     - name: Set up turbo caching (namespace)
       if: inputs.runner == 'namespace'
-      uses: namespace-actions/setup-turbocache@v0
+      uses: namespace-actions/setup-turbocache@v0.0.2
 
     - name: Setup Bun
-      uses: oven-sh/setup-bun@v2
+      uses: oven-sh/setup-bun@v2.2.0
       with:
         bun-version-file: .bun-version      
 
     - name: Setup caches (namespace)
       if: inputs.runner == 'namespace'
-      uses: namespacelabs/nscloud-cache-action@v1
+      uses: namespacelabs/nscloud-cache-action@v1.4.2
       with:
         cache: |
           playwright
@@ -72,7 +72,7 @@ runs:
 
     - name: Setup caches (github)
       if: inputs.runner == 'github'
-      uses: actions/cache@v5
+      uses: actions/cache@v5.0.5
       with:
         path: |
           ./.turbo
@@ -90,14 +90,14 @@ runs:
 
     - name: Install Node.js
       if: inputs.disable_node == 'false'
-      uses: actions/setup-node@v6
+      uses: actions/setup-node@v6.3.0
       with:
         node-version-file: .node-version
         registry-url: "https://registry.npmjs.org"
 
     - name: Install Foundry
       if: inputs.disable_foundry == 'false'
-      uses: foundry-rs/foundry-toolchain@v1
+      uses: foundry-rs/foundry-toolchain@v1.7.0
 
     - name: Install Helm Docs
       if: inputs.disable_helm_docs == 'false'
@@ -122,11 +122,11 @@ runs:
 
     - name: Install Helm
       if: inputs.disable_helm == 'false'
-      uses: azure/setup-helm@v5
+      uses: azure/setup-helm@v5.0.0
 
     - name: Set up Python
       if: inputs.disable_python == 'false'
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v6.2.0
       with:
         check-latest: true
 
